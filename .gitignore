@@ -1,0 +1,88 @@
+# ========================
+# Secrets
+# ========================
+.env
+.env.local
+.env.*.local
+
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ========================
+# Virtual Environment
+# ========================
+.venv/
+venv/
+env/
+
+# ========================
+# Data (large files, PDFs)
+# ========================
+data/
+
+# ========================
+# Vector Store
+# ========================
+chroma/
+chroma_db/
+qdrant_storage/
+*.faiss
+*.index
+pinecone_cache/
+
+# ========================
+# Logs
+# ========================
+logs/
+*.log
+*.log.*
+
+# ========================
+# Notebooks
+# ========================
+.ipynb_checkpoints/
+
+# ========================
+# Testing & Coverage
+# ========================
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# ========================
+# Linting / Type checking
+# ========================
+.mypy_cache/
+.ruff_cache/
+
+# ========================
+# Streamlit
+# ========================
+.streamlit/secrets.toml
+
+# ========================
+# Docker
+# ========================
+docker-compose.override.yml
+
+# ========================
+# IDE & OS
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
