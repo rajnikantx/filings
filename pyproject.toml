@@ -4,7 +4,26 @@ version = "0.1.0"
 description = "End-to-end RAG system for indexing, retrieving, and querying financial filings"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "accelerate>=1.14.0",
+    "aiofiles>=25.1.0",
+    "aiohttp>=3.14.1",
+    "ipykernel>=7.2.0",
+    "landingai-ade>=1.12.0",
+    "llama-cloud>=2.8.0",
+    "loguru>=0.7.3",
+    "openai>=2.41.1",
+    "protobuf>=7.35.1",
+    "pydantic-settings>=2.14.1",
+    "python-dotenv>=1.2.2",
+    "qdrant-client>=1.18.0",
+    "requests>=2.34.2",
+    "sentence-transformers>=5.6.0",
+    "sentencepiece>=0.2.1",
+    "tiktoken>=0.13.0",
+    "torch>=2.12.0",
+    "transformers>=5.12.1",
+]
 
 [build-system]
 requires = ["hatchling"]

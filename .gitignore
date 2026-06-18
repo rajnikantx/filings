@@ -29,6 +29,8 @@ env/
 # Data (large files, PDFs)
 # ========================
 data/
+docs/
+outputs/
 
 # ========================
 # Vector Store
@@ -51,6 +53,7 @@ logs/
 # Notebooks
 # ========================
 .ipynb_checkpoints/
+notebooks/outputs
 
 # ========================
 # Testing & Coverage
@@ -86,3 +89,14 @@ docker-compose.override.yml
 *.swo
 .DS_Store
 Thumbs.db
+
+# Coverage
+.coverage.*
+
+# Build artifacts
+*.egg
+pip-wheel-metadata/
+
+# Local databases (RAG caches)
+*.sqlite
+*.db
