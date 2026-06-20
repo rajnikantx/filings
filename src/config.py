@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     LLAMA_CLOUD_API_KEY: str
     VISION_AGENT_API_KEY: str
     METADATA_MODEL: str = "gpt-4o-mini"
-
+    QUERY_MODEL: str = "GPT-4O-mini"
+    
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
     RAW_FILINGS_DIR: Path = BASE_DIR / "data" / "raw_filings"
     PARSED_CONTENT_DIR: Path = BASE_DIR / "outputs" / "content"

@@ -68,7 +68,7 @@ class MetadataEnrichment:
         read_time = time.perf_counter() - start
 
         api_start = time.perf_counter()
-        response = await self._client.beta.chat.completions.parse(
+        response = await self._client.responses.parse(
             model=self._model,
             messages=[
                 {
