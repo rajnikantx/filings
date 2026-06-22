@@ -2,6 +2,8 @@ import hashlib
 import json
 import re
 import time
+import tiktoken
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -180,6 +182,7 @@ class SectionBuilder:
     def __init__(self, file_id: str, filing_metadata: dict):
         self._file_id = file_id
         self._filing_metadata = filing_metadata
+        self._encoding = tiktoken.get_encoding("cl100k_base")
 
     def generate(self, tree: list[dict]) -> list[dict]:
         records: list[dict] = []
@@ -202,6 +205,7 @@ class SectionBuilder:
                 "parent": parent_title,
                 "has_content": node.get("has_content", False),
                 "has_table": node.get("has_table", False),
+                "token_count": len(self._encoding.encode(node.get("text",""))),
             }
 
             accumulator.append({

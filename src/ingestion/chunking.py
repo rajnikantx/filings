@@ -18,7 +18,7 @@ class Chunker:
 
     async def chunk(self) -> List[dict]:
         """Process all *.json files, save chunks to disk, and return flattened chunks."""
-        parent_child_dir = Path(settings.PARENT_CHILD_PATH)
+        parent_child_dir = Path("outputs/sections")
         if not parent_child_dir.is_dir():
             raise NotADirectoryError(f"Directory not found: {settings.PARENT_CHILD_PATH}")
 

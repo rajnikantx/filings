@@ -1,101 +1,66 @@
-import uuid
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as rest_models
+import asyncio
+from qdrant_client import AsyncQdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 
 from src.config import settings
-from src.ingestion.encoder import Encoder
 
 
 class Vectorizer:
-    def __init__(self, encoder: Encoder) -> None:
-        self._encoder = encoder
-        self._client = QdrantClient(path = settings.QDRANT_URL)
-        self._collection = settings.QDRANT_COLLECTION
-        self._query_cache: dict[str, list[float]] = {}
+    def __init__(self):
+        self._client = AsyncQdrantClient(settings.QDRANT_URL)
+        self._batch_size = getattr(settings, "QDRANT_BATCH_SIZE", 100)
 
-    def create_collection(self) -> None:
-        """Create collection only if it doesn't already exist."""
-        if not self._client.collection_exists(self._collection):
-            self._client.create_collection(
-                collection_name=self._collection,
-                vectors_config=rest_models.VectorParams(
-                    size=self._encoder.dim,
-                    distance=rest_models.Distance.COSINE,
-                ),
+    async def create_collection(self) -> None:
+        """Create collection if it doesn't exist."""
+        collections = await self._client.get_collections()
+        existing = [c.name for c in collections.collections]
+        
+        if settings.QDRANT_COLLECTION not in existing:
+            await self._client.create_collection(
+                collection_name=settings.QDRANT_COLLECTION,
+                vectors_config=VectorParams(
+                    size=1536,
+                    distance=Distance.COSINE
+                )
             )
-            print(f"Collection '{self._collection}' created.")
-        else:
-            print(f"Collection '{self._collection}' already exists.")
 
-    def ingest(self, chunks: list[dict]) -> None:
-        """Embed and upsert chunks into Qdrant."""
-        texts = [c["content"] for c in chunks]
-        vectors = self._encoder.encode(texts)
-
+    def create_points(self, chunks: list[dict]) -> list[PointStruct]:
+        """Create list of PointStruct from chunks."""
         points = []
-        for idx, chunk in enumerate(chunks):
-            payload = {"page_content": chunk["content"], **chunk["metadata"]}
-            points.append(
-                rest_models.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector=vectors[idx],
-                    payload=payload,
-                )
+        for i, chunk in enumerate(chunks):
+            point = PointStruct(
+                id=chunk["metadata"].get("section_no", i),
+                vector=chunk["metadata"]["embedding"],
+                payload={
+                    "content": chunk["content"],
+                    "metadata": {
+                        k: v for k, v in chunk["metadata"].items() 
+                        if k != "embedding"
+                    }
+                }
             )
+            points.append(point)
+        return points
 
-        self._client.upsert(collection_name=self._collection, points=points)
-        print(f"Upserted {len(points)} points into '{self._collection}'.")
-
-    def search(
-        self, query: str, filters: dict | None = None, limit: int = 5
-    ) -> list[rest_models.ScoredPoint]:
-        """Search the existing collection."""
-        # Check cache first
-        if query in self._query_cache:
-            query_vector = self._query_cache[query]
-        else:
-            query_vector = self._encoder.encode_query(query)
-            self._query_cache[query] = query_vector
-
-        qdrant_filter = None
-        if filters:
-            conditions = []
-            for key, value in filters.items():
-                conditions.append(
-                    rest_models.FieldCondition(
-                        key=key,
-                        match=rest_models.MatchValue(value=value),
-                    )
-                )
-            qdrant_filter = rest_models.Filter(must=conditions)
-
-        result = self._client.query_points(
-            collection_name=self._collection,
-            query=query_vector,
-            query_filter=qdrant_filter,
-            limit=limit,
+    async def _upsert_batch(self, batch: list[PointStruct]) -> None:
+        """Upsert a single batch."""
+        await self._client.upsert(
+            collection_name=settings.QDRANT_COLLECTION,
+            wait=True,
+            points=batch
         )
-        return result.points
-    
 
-
-if __name__ == "__main__":
-    encoder = Encoder()
-    vec = Vectorizer(encoder)
-
-    vec.create_collection()
-
-    chunks = [
-        {
-            "content": "1 Tesla Road, Austin, Texas 78725",
-            "metadata": {
-                "ticker": "TSLA",
-                "fiscal_year": 2025,
-                "source_file": "tsla.json",
-            },
-        },
-     
-    ]
-
-    vec.ingest(chunks)
-    print("Ingestion complete.")
+    async def add_vectors(self, chunks: list[dict]) -> None:
+        """Upsert chunks into Qdrant in batches, concurrently."""
+        points = self.create_points(chunks)
+        
+        # Split into batches
+        batches = [
+            points[i:i + self._batch_size] 
+            for i in range(0, len(points), self._batch_size)
+        ]
+        
+        # Upsert all batches in parallel
+        await asyncio.gather(*[
+            self._upsert_batch(batch) for batch in batches
+        ])
