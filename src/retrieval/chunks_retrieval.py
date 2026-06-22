@@ -1,50 +1,92 @@
-from typing import List
+import asyncio
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from src.ingestion.vectorizer import Vectorizer
-from src.ingestion.encoder import Encoder
-from src.retrieval.query_enhancement import QueryEnhancement
+from src.config import settings
+from src.embedder import Embedding
+from src.vectorizer import Vectorizer
 
-encoder = Encoder()
-vec = Vectorizer(encoder=encoder)
 
-class Retrieval:
+class SearchEngine:
     def __init__(self):
-        self.query_enhancer = QueryEnhancement()
+        self._vectorizer = Vectorizer()
+        self._embedder = Embedding()
 
-    async def retrieve_chunks(
+    async def search(
         self,
-        query: str,
-        filters: dict | None = None,
+        query_text: str,
         limit: int = 5,
-    ) -> List[dict]:
-        results = vec.search(query=query, filters=filters, limit=limit)
+        score_threshold: float | None = None,
+        query_filter: Filter | None = None,
+    ) -> list[dict]:
+        """
+        Search by text. Returns entire chunks with similarity score added.
+        """
+        # Embed query
+        query_chunk = [{"content": query_text, "metadata": {}}]
+        embedded = await self._embedder.embed_chunks(query_chunk)
+        query_vector = embedded[0]["metadata"]["embedding"]
 
-        chunks = []
-        for point in results:
-            payload = point.payload or {}
-            chunk = {
-                "content": payload.get("page_content", ""),
-                "score": point.score,
-                "metadata": {
-                    k: v for k, v in payload.items() if k != "page_content"
-                },
+        # Search Qdrant
+        results = await self._vectorizer._client.search(
+            collection_name=settings.QDRANT_COLLECTION,
+            query_vector=query_vector,
+            limit=limit,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        # Return entire chunks (content + metadata + score)
+        return [
+            {
+                "content": r.payload["content"],
+                "metadata": r.payload["metadata"],
+                "score": r.score,
             }
-            chunks.append(chunk)
+            for r in results
+        ]
 
-        return chunks
-
-    async def retrieve_chunks_enhanced(
+    async def search_with_filters(
         self,
-        query: str,
-        strategy: str = "hyde",
-        filters: dict | None = None,
+        query_text: str,
+        filters: dict,
         limit: int = 5,
-    ) -> List[dict]:
-        if strategy == "hyde":
-            query = await self.query_enhancer.hyde(query)
-        elif strategy == "rewrite":
-            query = await self.query_enhancer.query_rewrite(query)
-        elif strategy == "step_back":
-            query = await self.query_enhancer.step_back(query)
+        score_threshold: float | None = None,
+    ) -> list[dict]:
+        """Search with simple dict filters."""
+        query_filter = self._build_filter(filters) if filters else None
+        return await self.search(
+            query_text=query_text,
+            limit=limit,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+        )
 
-        return await self.retrieve_chunks(query=query, filters=filters, limit=limit)
+    def _build_filter(self, filters: dict) -> Filter:
+        conditions = []
+        for key, value in filters.items():
+            conditions.append(
+                FieldCondition(
+                    key=f"metadata.{key}",
+                    match=MatchValue(value=value),
+                )
+            )
+        return Filter(must=conditions)
+
+
+# ─── Convenience one-shot function ───
+
+async def search(
+    query_text: str,
+    limit: int = 5,
+    score_threshold: float | None = None,
+    query_filter: Filter | None = None,
+) -> list[dict]:
+    engine = SearchEngine()
+    return await engine.search(
+        query_text=query_text,
+        limit=limit,
+        score_threshold=score_threshold,
+        query_filter=query_filter,
+    )
