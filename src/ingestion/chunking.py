@@ -137,9 +137,9 @@ async def run_chunker(sections_by_file: dict[str, list[dict]]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    from src.parsers.llama_cloud_parser import LlamaCloudParser
-    from src.enrichment.metadata_enrichment import MetadataEnrichment
-    from src.pipeline.section_pipeline import SectionPipeline
+    from src.ingestion.llama_cloud_parser import LlamaCloudParser
+    from src.ingestion.metadata_enrichment import MetadataEnrichment
+    from src.ingestion.parent_child import SectionPipeline
 
     async def main():
         parser = LlamaCloudParser(tier="agentic")

@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
     RAW_FILINGS_DIR: Path = BASE_DIR / "data" / "raw_filings"
-
+    EXTRACTED_CSV_PATH: Path = BASE_DIR/ "data" / "extracted_csv"
+    
     CHUNK_SIZE: int = 700
 
     # EMBEDDING_MODEL: str = "FinLang/finance-embeddings-investopedia"
