@@ -10,9 +10,6 @@ from src.prompts.llamaparse import LLAMAPARSE_PROMPT
 
 load_dotenv()
 
-logger.add("logs/parser.log", rotation="1 MB", level="INFO")
-
-
 class LlamaCloudParser:
     def __init__(self, tier: str):
         key = os.getenv("LLAMA_CLOUD_API_KEY")
@@ -22,14 +19,11 @@ class LlamaCloudParser:
         self._client = AsyncLlamaCloud(api_key=key)
         self._tier = tier
 
-    async def parse_and_save(
+    async def parse_pdfs(
         self,
         pdf_dir: str | Path,
-        output_dir: str | Path,
-    ) -> None:
+    ) -> list[tuple[Path, str, str]]:
         pdf_dir = Path(pdf_dir)
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         if pdf_dir.is_dir():
             files = list(pdf_dir.glob("*.pdf"))
@@ -39,12 +33,12 @@ class LlamaCloudParser:
         else:
             files = [pdf_dir]
 
-        
         results = await asyncio.gather(
-            *[self._parse(f) for f in files],
+            *[self._parse_file(f) for f in files],
             return_exceptions=True
         )
 
+        parsed: list[tuple[Path, str, str]] = []
         for file_path, result in zip(files, results):
             if isinstance(result, Exception):
                 logger.error("Parse failed for {}: {}", file_path.name, result)
@@ -52,21 +46,27 @@ class LlamaCloudParser:
 
             pages = result.markdown.pages
             full_md = "\n\n".join(page.markdown for page in pages)
-            
+
             if len(pages) >= 2:
                 intro_md = pages[0].markdown + "\n\n" + pages[1].markdown
             else:
                 intro_md = pages[0].markdown if pages else ""
 
-            content_path = output_dir / "content" / f"{file_path.stem}.md"
-            intro_path = output_dir / "intro" / f"{file_path.stem}.md"
+            content_path = Path(f"logs/full_content/{file_path.stem}.md")
+            intro_path = Path(f"logs/intro/{file_path.stem}_intro.md")
+            
+            content_path.parent.mkdir(parents=True, exist_ok=True)
+            intro_path.parent.mkdir(parents=True, exist_ok=True)
 
-            self._save_markdown(full_md, content_path)
-            self._save_markdown(intro_md, intro_path)
+            content_path.write_text(full_md, encoding="utf-8")
+            intro_path.write_text(intro_md, encoding="utf-8")
 
-            logger.info("Saved content + intro for {}", file_path.name)
+            logger.info("Saved {} and {}", content_path, intro_path)
+            parsed.append((file_path, full_md, intro_md))
 
-    async def _parse(self, pdf_path: str | Path):
+        return parsed
+        
+    async def _parse_file(self, pdf_path: str | Path):
         path = Path(pdf_path)
 
         if not path.is_file():
@@ -96,14 +96,7 @@ class LlamaCloudParser:
             logger.error("Failed {}: {}", path.name, e)
             raise
 
-    @staticmethod
-    def _save_markdown(markdown: str, save_path: Path) -> None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, "w", encoding="utf-8") as f:
-            f.write(markdown)
-        logger.debug("Wrote {} bytes to {}", len(markdown), save_path.name)
-
 
 if __name__ == "__main__":
     parser = LlamaCloudParser(tier="agentic")
-    asyncio.run(parser.parse_and_save("data/raw_filings/", "outputs/"))
+    asyncio.run(parser.parse_pdfs("data/raw_filings/"))

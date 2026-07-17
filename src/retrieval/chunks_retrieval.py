@@ -2,8 +2,8 @@ import asyncio
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 from src.config import settings
-from src.embedder import Embedding
-from src.vectorizer import Vectorizer
+from src.ingestion.encoder import Embedding
+from src.ingestion.vectorizer import Vectorizer
 
 
 class SearchEngine:
