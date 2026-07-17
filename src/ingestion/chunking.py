@@ -1,11 +1,10 @@
-import re
-import json
 import asyncio
+import json
 import logging
-import argparse
-from typing import List
+import re
 from pathlib import Path
-from src.config import settings
+
+from src.ingestion.parent_child import flatten_sections
 
 logger = logging.getLogger(__name__)
 
@@ -14,147 +13,145 @@ _NEXT_SEP = {"\n\n": "\n", "\n": "sentence", "sentence": None}
 
 
 class Chunker:
-    """Read JSON files, split their content into chunks, save and return them."""
+    """Split section content into chunks and return them."""
 
-    async def chunk(self) -> List[dict]:
-        """Process all *.json files, save chunks to disk, and return flattened chunks."""
-        parent_child_dir = Path("outputs/sections")
-        if not parent_child_dir.is_dir():
-            raise NotADirectoryError(f"Directory not found: {settings.PARENT_CHILD_PATH}")
-
-        # Ensure save directory exists
-        save_dir = Path(settings.CHUNK_DIR)
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        files = list(parent_child_dir.glob("*.json"))
-        if not files:
-            logger.warning("No JSON files found in %s", parent_child_dir)
+    async def chunk(self, sections_by_file: dict[str, list[dict]]) -> list[dict]:
+        """Process all files' sections concurrently and return flattened chunks."""
+        if not sections_by_file:
+            logger.warning("No sections provided to chunk")
             return []
 
-        # Process all files concurrently
-        results = await asyncio.gather(
-            *[asyncio.to_thread(self._process_file, file, save_dir) for file in files]
+        chunks_per_file = await asyncio.gather(
+            *[
+                asyncio.to_thread(self._process_file, file_stem, section_items)
+                for file_stem, section_items in sections_by_file.items()
+            ]
         )
 
-        # Flatten list of lists into one list
-        return [chunk for file_chunks in results for chunk in file_chunks]
+        # Flatten list of per-file chunk lists into one list
+        return [chunk_record for file_chunks in chunks_per_file for chunk_record in file_chunks]
 
-    def _process_file(self, file: Path, save_dir: Path) -> List[dict]:
-        """Load a JSON file, chunk it, save chunks, and return them."""
-        with open(file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    def _process_file(self, file_stem: str, section_items: list[dict]) -> list[dict]:
+        """Chunk a single file's sections and return the chunks."""
+        flat_sections = flatten_sections(section_items)
+        file_chunks = []
+        for section_item in flat_sections:
+            section_content = section_item.get("content", "")
+            section_metadata = section_item.get("metadata", {})
 
-        # Normalize so we always iterate over a list of items
-        if isinstance(data, dict):
-            items: List[dict] = [data]
-        elif isinstance(data, list):
-            items = data
-        else:
-            raise ValueError(
-                f"Expected JSON list or dict in {file.name}, got {type(data).__name__}"
-            )
-
-        chunks = []
-        for item_idx, item in enumerate(items):
-            content = item.get("content", "")
-            metadata = item.get("metadata", {})
-
-            if not content.strip():
+            if not section_content.strip():
                 continue
 
-            text_chunks = Chunker.chunk_text(content, max_chars=1000)
+            content_chunks = Chunker.chunk_text(section_content, max_chars=1000)
 
-            for chunk_idx, chunk_text in enumerate(text_chunks):
-                chunk = {
-                    "content": chunk_text,
+            for chunk_content in content_chunks:
+                chunk_record = {
+                    "content": chunk_content,
                     "metadata": {
-                        **metadata,
-                        "source_file": file.name,
+                        **section_metadata,
+                        "source_file": file_stem,
+                        "has_table": bool(_TABLE_RE.search(chunk_content)),
                     }
                 }
-                chunks.append(chunk)
+                file_chunks.append(chunk_record)
 
-        # Save all chunks for this file to disk
-        save_path = save_dir / f"{file.stem}_chunks.json"
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(chunks, f, ensure_ascii=False, indent=2)
-
-        logger.info("Saved %d chunks from %s to %s", len(chunks), file.name, save_path)
-        return chunks
+        logger.info("Produced %d chunks from %s", len(file_chunks), file_stem)
+        return file_chunks
 
     @staticmethod
-    def chunk_text(text: str, max_chars: int = 1000) -> List[str]:
+    def chunk_text(text: str, max_chars: int = 1000) -> list[str]:
         """Split text into chunks. Tables are always kept whole."""
         if len(text) <= max_chars:
             return [text]
 
-        chunks = []
-        for part in _TABLE_RE.split(text):
-            if not part:
+        text_chunks = []
+        for segment in _TABLE_RE.split(text):
+            if not segment:
                 continue
-            if part.startswith("<table>") and part.endswith("</table>"):
-                chunks.append(part)
+            if segment.startswith("<table>") and segment.endswith("</table>"):
+                text_chunks.append(segment)
             else:
-                chunks.extend(Chunker._chunk_recursive(part, max_chars, "\n\n"))
-        return chunks
+                text_chunks.extend(Chunker._chunk_recursive(segment, max_chars, "\n\n"))
+        return text_chunks
 
     @staticmethod
-    def _chunk_recursive(text: str, max_chars: int, sep: str) -> List[str]:
-        """Split text by sep. If a piece is still too big, recurse with a finer sep."""
+    def _chunk_recursive(text: str, max_chars: int, separator: str) -> list[str]:
+        """Split text by separator. If a piece is still too big, recurse with a finer separator."""
         if len(text) <= max_chars:
             return [text]
 
-        next_sep = _NEXT_SEP.get(sep)
-        chunks = []
+        next_separator = _NEXT_SEP.get(separator)
+        text_chunks = []
 
-        for part in text.split(sep):
-            if not part:
+        for segment in text.split(separator):
+            if not segment:
                 continue
-            if len(part) <= max_chars:
-                chunks.append(part)
-            elif next_sep is None:
-                for i in range(0, len(part), max_chars):
-                    chunks.append(part[i:i + max_chars])
-            elif next_sep == "sentence":
-                sentences = re.split(r"(?<=[.!?])\s+", part)
-                chunks.extend(Chunker._chunk_sentences(sentences, max_chars))
+            if len(segment) <= max_chars:
+                text_chunks.append(segment)
+            elif next_separator is None:
+                for start in range(0, len(segment), max_chars):
+                    text_chunks.append(segment[start:start + max_chars])
+            elif next_separator == "sentence":
+                sentences = re.split(r"(?<=[.!?])\s+", segment)
+                text_chunks.extend(Chunker._chunk_sentences(sentences, max_chars))
             else:
-                chunks.extend(Chunker._chunk_recursive(part, max_chars, next_sep))
+                text_chunks.extend(Chunker._chunk_recursive(segment, max_chars, next_separator))
 
-        return chunks
+        return text_chunks
 
     @staticmethod
-    def _chunk_sentences(sentences: List[str], max_chars: int) -> List[str]:
+    def _chunk_sentences(sentences: list[str], max_chars: int) -> list[str]:
         """Merge short sentences together. Hard-split any sentence that is too long."""
-        chunks = []
-        current = ""
+        sentence_chunks = []
+        current_chunk = ""
 
-        for sent in sentences:
-            candidate = f"{current} {sent}".strip() if current else sent
-            if len(candidate) <= max_chars:
-                current = candidate
+        for sentence in sentences:
+            candidate_chunk = f"{current_chunk} {sentence}".strip() if current_chunk else sentence
+            if len(candidate_chunk) <= max_chars:
+                current_chunk = candidate_chunk
             else:
-                if current:
-                    chunks.append(current)
-                if len(sent) <= max_chars:
-                    current = sent
+                if current_chunk:
+                    sentence_chunks.append(current_chunk)
+                if len(sentence) <= max_chars:
+                    current_chunk = sentence
                 else:
-                    for i in range(0, len(sent), max_chars):
-                        chunks.append(sent[i:i + max_chars])
-                    current = ""
+                    for start in range(0, len(sentence), max_chars):
+                        sentence_chunks.append(sentence[start:start + max_chars])
+                    current_chunk = ""
 
-        if current:
-            chunks.append(current)
-        return chunks
+        if current_chunk:
+            sentence_chunks.append(current_chunk)
+        return sentence_chunks
 
-async def run_chunker() -> List[dict]:
+
+async def run_chunker(sections_by_file: dict[str, list[dict]]) -> list[dict]:
     """Instantiate and run the chunker."""
     chunker = Chunker()
-    all_chunks = await chunker.chunk()
+    all_chunks = await chunker.chunk(sections_by_file)
+    
+    Path("logs").mkdir(parents=True, exist_ok=True)
+    with open("logs/chunks.json", "w") as f:
+        json.dump(all_chunks, f, indent=2)
     logger.info("Total chunks produced: %d", len(all_chunks))
     return all_chunks
 
 
 if __name__ == "__main__":
-    all_chunks = asyncio.run(run_chunker())
-    print(f"\nDone. Total chunks: {len(all_chunks)}")
+    from src.parsers.llama_cloud_parser import LlamaCloudParser
+    from src.enrichment.metadata_enrichment import MetadataEnrichment
+    from src.pipeline.section_pipeline import SectionPipeline
+
+    async def main():
+        parser = LlamaCloudParser(tier="agentic")
+        parsed_files = await parser.parse_pdfs("data/raw_filings/")
+
+        enricher = MetadataEnrichment()
+        metadata_by_file = await enricher.enrich_all(parsed_files)
+
+        pipeline = SectionPipeline()
+        sections_by_file = pipeline.execute(parsed_files, metadata_by_file)
+
+        all_chunks = await run_chunker(sections_by_file)
+        print(f"\nDone. Total chunks: {len(all_chunks)}")
+
+    asyncio.run(main())

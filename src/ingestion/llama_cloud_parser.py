@@ -10,13 +10,14 @@ from src.prompts.llamaparse import LLAMAPARSE_PROMPT
 
 load_dotenv()
 
+
 class LlamaCloudParser:
     def __init__(self, tier: str):
-        key = os.getenv("LLAMA_CLOUD_API_KEY")
-        if not key:
+        api_key = os.getenv("LLAMA_CLOUD_API_KEY")
+        if not api_key:
             raise ValueError("Set LLAMA_CLOUD_API_KEY in .env file")
-        
-        self._client = AsyncLlamaCloud(api_key=key)
+
+        self._client = AsyncLlamaCloud(api_key=api_key)
         self._tier = tier
 
     async def parse_pdfs(
@@ -26,62 +27,64 @@ class LlamaCloudParser:
         pdf_dir = Path(pdf_dir)
 
         if pdf_dir.is_dir():
-            files = list(pdf_dir.glob("*.pdf"))
-            if not files:
+            pdf_files = list(pdf_dir.glob("*.pdf"))
+            if not pdf_files:
                 raise FileNotFoundError("Upload pdf file only")
-            logger.info("Found {} PDFs in {}", len(files), pdf_dir)
+            logger.info("Found {} PDFs in {}", len(pdf_files), pdf_dir)
         else:
-            files = [pdf_dir]
+            if not pdf_dir.is_file():
+                raise FileNotFoundError(f"PDF not found: {pdf_dir}")
+            pdf_files = [pdf_dir]
 
-        results = await asyncio.gather(
-            *[self._parse_file(f) for f in files],
-            return_exceptions=True
+        parse_results = await asyncio.gather(
+            *[self._parse_file(pdf_file) for pdf_file in pdf_files],
+            return_exceptions=True,
         )
 
-        parsed: list[tuple[Path, str, str]] = []
-        for file_path, result in zip(files, results):
-            if isinstance(result, Exception):
-                logger.error("Parse failed for {}: {}", file_path.name, result)
+        parsed_files: list[tuple[Path, str, str]] = []
+        for pdf_file, parse_result in zip(pdf_files, parse_results):
+            if isinstance(parse_result, Exception):
+                logger.error("Parse failed for {}: {}", pdf_file.name, parse_result)
                 continue
 
-            pages = result.markdown.pages
-            full_md = "\n\n".join(page.markdown for page in pages)
+            pages = parse_result.markdown.pages
+            full_markdown = "\n\n".join(page.markdown for page in pages)
 
             if len(pages) >= 2:
-                intro_md = pages[0].markdown + "\n\n" + pages[1].markdown
+                intro_markdown = pages[0].markdown + "\n\n" + pages[1].markdown
             else:
-                intro_md = pages[0].markdown if pages else ""
+                intro_markdown = pages[0].markdown if pages else ""
 
-            content_path = Path(f"logs/full_content/{file_path.stem}.md")
-            intro_path = Path(f"logs/intro/{file_path.stem}_intro.md")
-            
+            content_path = Path(f"logs/full_content/{pdf_file.stem}.md")
+            intro_path = Path(f"logs/intro/{pdf_file.stem}_intro.md")
+
             content_path.parent.mkdir(parents=True, exist_ok=True)
             intro_path.parent.mkdir(parents=True, exist_ok=True)
 
-            content_path.write_text(full_md, encoding="utf-8")
-            intro_path.write_text(intro_md, encoding="utf-8")
+            content_path.write_text(full_markdown, encoding="utf-8")
+            intro_path.write_text(intro_markdown, encoding="utf-8")
 
             logger.info("Saved {} and {}", content_path, intro_path)
-            parsed.append((file_path, full_md, intro_md))
+            parsed_files.append((pdf_file, full_markdown, intro_markdown))
 
-        return parsed
-        
+        return parsed_files
+
     async def _parse_file(self, pdf_path: str | Path):
-        path = Path(pdf_path)
+        pdf_path = Path(pdf_path)
 
-        if not path.is_file():
-            logger.error("File not found: {}", path)
-            raise FileNotFoundError(f"PDF not found: {path}")
+        if not pdf_path.is_file():
+            logger.error("File not found: {}", pdf_path)
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
         try:
-            logger.info("Uploading: {}", path.name)
-            file = await self._client.files.create(
-                file=path,
+            logger.info("Uploading: {}", pdf_path.name)
+            uploaded_file = await self._client.files.create(
+                file=pdf_path,
                 purpose="parse",
             )
-            logger.info("Parsing: {}", path.name)
-            result = await self._client.parsing.parse(
-                file_id=file.id,
+            logger.info("Parsing: {}", pdf_path.name)
+            parse_result = await self._client.parsing.parse(
+                file_id=uploaded_file.id,
                 tier=self._tier,
                 version="latest",
                 expand=["markdown"],
@@ -89,11 +92,11 @@ class LlamaCloudParser:
                     "custom_prompt": LLAMAPARSE_PROMPT,
                 },
             )
-            logger.info("Done: {}", path.name)
-            return result
+            logger.info("Done: {}", pdf_path.name)
+            return parse_result
 
-        except Exception as e:
-            logger.error("Failed {}: {}", path.name, e)
+        except Exception as error:
+            logger.error("Failed {}: {}", pdf_path.name, error)
             raise
 
 

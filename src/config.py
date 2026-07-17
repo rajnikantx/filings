@@ -19,10 +19,6 @@ class Settings(BaseSettings):
     
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
     RAW_FILINGS_DIR: Path = BASE_DIR / "data" / "raw_filings"
-    PARSED_CONTENT_DIR: Path = BASE_DIR / "outputs" / "content"
-    INTRO_DIR: Path = BASE_DIR / "outputs" / "intro"
-    PARENT_CHILD_PATH: Path = BASE_DIR / "outputs" / "parent_child"
-    CHUNK_DIR: Path = BASE_DIR / "outputs" / "chunks"
 
     CHUNK_SIZE: int = 700
 
