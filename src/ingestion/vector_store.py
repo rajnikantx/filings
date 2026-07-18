@@ -1,7 +1,7 @@
-import uuid
+import hashlib
 
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 
 from src.config import settings
 
@@ -26,17 +26,25 @@ class VectorStore:
                 ),
             )
 
-    async def upsert_chunks(self, chunks: list[dict], embeddings: list[list[float]]):
+    @staticmethod
+    def _chunk_id(chunk: dict) -> str:
+        key = f"{chunk['metadata']['file_id']}::{chunk['metadata']['section_no']}"
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+    async def upsert_chunks(self, chunks: list[dict]):
         points = [
             PointStruct(
-                id=chunk.get("id", str(uuid.uuid4())),
-                vector=embedding,
+                id=chunk.get("id") or self._chunk_id(chunk),
+                vector=chunk["embedding"],
                 payload={
                     "content": chunk["content"],
-                    **{k: v for k, v in chunk.items() if k not in ("content", "id")},
+                    **{
+                        k: v for k, v in chunk.items()
+                        if k not in ("content", "id", "embedding")
+                    },
                 },
             )
-            for chunk, embedding in zip(chunks, embeddings)
+            for chunk in chunks
         ]
 
         await self._client.upsert(
@@ -48,12 +56,13 @@ class VectorStore:
         self,
         query_vector: list[float],
         top_k: int = 5,
-        filters: dict | None = None,
+        filters: Filter | None = None,
     ) -> list[dict]:
         results = await self._client.query_points(
             collection_name=self._collection_name,
             query=query_vector,
             limit=top_k,
+            query_filter=filters,
         )
         return [
             {"score": point.score, "payload": point.payload}
