@@ -1,92 +1,64 @@
-import asyncio
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from src.config import settings
-from ingestion.embedder import Embedding
-from src.ingestion.vectorizer import Vectorizer
+from src.ingestion.embedder import Embedder
+from src.ingestion.vector_store import VectorStore
 
 
-class SearchEngine:
-    def __init__(self):
-        self._vectorizer = Vectorizer()
-        self._embedder = Embedding()
+class ChunkRetrievalError(Exception):
+    """Raised when a chunk retrieval operation fails, wrapping the underlying cause."""
+
+
+class ChunkRetrieval:
+    def __init__(
+        self,
+        vector_store: VectorStore | None = None,
+        embedder: Embedder | None = None,
+    ):
+        self._vector_store = vector_store or VectorStore()
+        self._embedder = embedder or Embedder()
 
     async def search(
         self,
         query_text: str,
         limit: int = 5,
         score_threshold: float | None = None,
-        query_filter: Filter | None = None,
+        filters: dict | Filter | None = None,
     ) -> list[dict]:
         """
         Search by text. Returns entire chunks with similarity score added.
+        `filters` accepts either a plain dict (e.g. {'ticker': 'TSLA'}) or a
+        pre-built qdrant_client Filter for more complex conditions.
         """
-        # Embed query
-        query_chunk = [{"content": query_text, "metadata": {}}]
-        embedded = await self._embedder.embed_chunks(query_chunk)
-        query_vector = embedded[0]["metadata"]["embedding"]
+        query_filter = self._build_filter(filters) if isinstance(filters, dict) else filters
 
-        # Search Qdrant
-        results = await self._vectorizer._client.search(
-            collection_name=settings.QDRANT_COLLECTION,
-            query_vector=query_vector,
-            limit=limit,
-            score_threshold=score_threshold,
-            query_filter=query_filter,
-            with_payload=True,
-            with_vectors=False,
-        )
+        try:
+            query_vector = await self._embedder.embed_query(query_text)
+        except Exception as e:
+            raise ChunkRetrievalError(f"Failed to embed query text: {e}") from e
 
-        # Return entire chunks (content + metadata + score)
+        try:
+            results = await self._vector_store.search(
+                query_vector=query_vector,
+                top_k=limit,
+                filters=query_filter,
+                score_threshold=score_threshold,
+            )
+        except Exception as e:
+            raise ChunkRetrievalError(f"Vector store search failed: {e}") from e
+
         return [
             {
-                "content": r.payload["content"],
-                "metadata": r.payload["metadata"],
-                "score": r.score,
+                "content": r["payload"]["content"],
+                "metadata": r["payload"].get("metadata", {}),
+                "score": r["score"],
             }
             for r in results
         ]
 
-    async def search_with_filters(
-        self,
-        query_text: str,
-        filters: dict,
-        limit: int = 5,
-        score_threshold: float | None = None,
-    ) -> list[dict]:
-        """Search with simple dict filters."""
-        query_filter = self._build_filter(filters) if filters else None
-        return await self.search(
-            query_text=query_text,
-            limit=limit,
-            score_threshold=score_threshold,
-            query_filter=query_filter,
-        )
-
-    def _build_filter(self, filters: dict) -> Filter:
-        conditions = []
-        for key, value in filters.items():
-            conditions.append(
-                FieldCondition(
-                    key=f"metadata.{key}",
-                    match=MatchValue(value=value),
-                )
-            )
+    @staticmethod
+    def _build_filter(filters: dict) -> Filter:
+        conditions = [
+            FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
+            for key, value in filters.items()
+        ]
         return Filter(must=conditions)
-
-
-# ─── Convenience one-shot function ───
-
-async def search(
-    query_text: str,
-    limit: int = 5,
-    score_threshold: float | None = None,
-    query_filter: Filter | None = None,
-) -> list[dict]:
-    engine = SearchEngine()
-    return await engine.search(
-        query_text=query_text,
-        limit=limit,
-        score_threshold=score_threshold,
-        query_filter=query_filter,
-    )

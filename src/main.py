@@ -7,6 +7,8 @@ from src.ingestion.llama_cloud_parser import LlamaCloudParser
 from src.ingestion.metadata_enrichment import MetadataEnrichment
 from src.ingestion.parent_child import SectionPipeline
 from src.ingestion.table_parser import TableParser
+from src.ingestion.embedder import Embedder
+from src.ingestion.vector_store import VectorStore
 
 if __name__ == "__main__":
 
@@ -26,6 +28,16 @@ if __name__ == "__main__":
         table_parser = TableParser()
         all_chunks = await table_parser.parse(all_chunks)
         logger.info("Table processing complete. Final chunks saved to logs/final_chunks.json")
+
+        embedder = Embedder()
+        all_chunks = await embedder.embed_all(all_chunks)
+        logger.info("Embedding complete for {} chunks", len(all_chunks))
+
+        vector_store = VectorStore()
+        await vector_store.ensure_collection()
+        await vector_store.upsert_chunks(all_chunks)
+        logger.info("Upsert complete. {} chunks stored in Qdrant collection '{}'",
+                    len(all_chunks), vector_store._collection_name)
 
         print(f"\nDone. Total chunks: {len(all_chunks)}")
 

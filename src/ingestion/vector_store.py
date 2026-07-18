@@ -15,6 +15,10 @@ class VectorStore:
         self._collection_name = collection_name or settings.QDRANT_COLLECTION
         self._vector_size = vector_size or settings.QDRANT_VECTOR_SIZE
 
+    @property
+    def collection_name(self) -> str:
+        return self._collection_name
+
     async def ensure_collection(self):
         exists = await self._client.collection_exists(self._collection_name)
         if not exists:
@@ -57,12 +61,16 @@ class VectorStore:
         query_vector: list[float],
         top_k: int = 5,
         filters: Filter | None = None,
+        score_threshold: float | None = None,
     ) -> list[dict]:
         results = await self._client.query_points(
             collection_name=self._collection_name,
             query=query_vector,
             limit=top_k,
             query_filter=filters,
+            score_threshold=score_threshold,
+            with_payload=True,
+            with_vectors=False,
         )
         return [
             {"score": point.score, "payload": point.payload}
