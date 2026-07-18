@@ -1,28 +1,24 @@
 import asyncio
-import json
-from pathlib import Path
 
 from loguru import logger
 
+from src.core.cli import parse_args
 from src.indexing.chunking import run_chunker
+from src.indexing.embedder import Embedder
 from src.indexing.llama_cloud_parser import LlamaCloudParser
 from src.indexing.metadata_enrichment import MetadataEnrichment
 from src.indexing.parent_child import SectionPipeline
 from src.indexing.table_parser import TableParser
-from src.indexing.embedder import Embedder
 from src.indexing.vector_store import VectorStore
-from src.inference.query_enhancement import QueryEnhancement
 from src.inference.chunks_retrieval import ChunkRetrieval
 from src.inference.context_build import Context
 from src.inference.generate_answer import Generation
-
-MODE = "query"  # "ingestion" or "query"
-QUERY = "what does this sec filings about"
+from src.inference.query_enhancement import QueryEnhancement
 
 
-async def ingestion():
+async def ingestion(directory: str = "data/raw_filings/"):
     parser = LlamaCloudParser(tier="agentic")
-    parsed_files = await parser.parse_pdfs("data/raw_filings/")
+    parsed_files = await parser.parse_pdfs(directory)
 
     enricher = MetadataEnrichment()
     metadata_by_file = await enricher.enrich_all(parsed_files)
@@ -65,17 +61,23 @@ async def query(user_query: str, top_k: int = 5):
     logger.info("Retrieved {} chunks", len(results))
 
     context = context_builder.build_context(results)
-    answer = generator.generate_answer(context, user_query)
 
     print(f"\nQuery: {user_query}")
     print(f"Rewritten: {rewritten}")
-    print(f"\nAnswer:\n{answer}")
+    print("\nAnswer:\n")
+    async for token in generator.generate_answer(context, user_query):
+        print(token, end="", flush=True)
+    print()
 
-    return answer
+
+def main():
+    args = parse_args()
+
+    if args.command == "ingestion":
+        asyncio.run(ingestion(directory=args.directory))
+    elif args.command == "query":
+        asyncio.run(query(args.query, top_k=args.top_k))
 
 
 if __name__ == "__main__":
-    if MODE == "ingestion":
-        asyncio.run(ingestion())
-    elif MODE == "query":
-        asyncio.run(query(QUERY))
+    main()

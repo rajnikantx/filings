@@ -12,7 +12,7 @@ from src.config import settings
 
 class TableParser:
     def __init__(self):
-        self._model = "gpt-4o"
+        self._model = settings.QUERY_MODEL
         self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
     async def _html_table_to_df(self, table: str):
