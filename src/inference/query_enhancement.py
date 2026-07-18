@@ -60,7 +60,6 @@ class QueryEnhancement:
         try:
             response = await self._client.responses.create(
                 model= settings.QUERY_MODEL,
-                reasoning= {"effort": "high"},
                 input= [
                     {
                         "role": "developer",

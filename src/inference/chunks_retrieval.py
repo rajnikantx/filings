@@ -1,7 +1,9 @@
+import json
+from pathlib import Path
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from src.ingestion.embedder import Embedder
-from src.ingestion.vector_store import VectorStore
+from src.indexing.embedder import Embedder
+from src.indexing.vector_store import VectorStore
 
 
 class ChunkRetrievalError(Exception):
@@ -46,7 +48,7 @@ class ChunkRetrieval:
         except Exception as e:
             raise ChunkRetrievalError(f"Vector store search failed: {e}") from e
 
-        return [
+        query_results= [
             {
                 "content": r["payload"]["content"],
                 "metadata": r["payload"].get("metadata", {}),
@@ -54,6 +56,8 @@ class ChunkRetrieval:
             }
             for r in results
         ]
+
+        return query_results
 
     @staticmethod
     def _build_filter(filters: dict) -> Filter:

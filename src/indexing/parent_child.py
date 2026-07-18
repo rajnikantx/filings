@@ -300,8 +300,8 @@ class SectionPipeline:
 if __name__ == "__main__":
     import asyncio
 
-    from src.ingestion.llama_cloud_parser import LlamaCloudParser
-    from src.ingestion.metadata_enrichment import MetadataEnrichment
+    from src.indexing.llama_cloud_parser import LlamaCloudParser
+    from src.indexing.metadata_enrichment import MetadataEnrichment
 
     async def main():
         parser = LlamaCloudParser(tier="agentic")

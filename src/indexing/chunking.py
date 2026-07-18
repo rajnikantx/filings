@@ -4,7 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from src.ingestion.parent_child import flatten_sections
+from src.indexing.parent_child import flatten_sections
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +137,9 @@ async def run_chunker(sections_by_file: dict[str, list[dict]]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    from src.ingestion.llama_cloud_parser import LlamaCloudParser
-    from src.ingestion.metadata_enrichment import MetadataEnrichment
-    from src.ingestion.parent_child import SectionPipeline
+    from src.indexing.llama_cloud_parser import LlamaCloudParser
+    from src.indexing.metadata_enrichment import MetadataEnrichment
+    from src.indexing.parent_child import SectionPipeline
 
     async def main():
         parser = LlamaCloudParser(tier="agentic")

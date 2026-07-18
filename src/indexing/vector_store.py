@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
@@ -9,8 +10,7 @@ from src.config import settings
 class VectorStore:
     def __init__(self, collection_name: str | None = None, vector_size: int | None = None):
         self._client = AsyncQdrantClient(
-            url=settings.QDRANT_URL,
-            api_key=settings.QDRANT_API_KEY,
+            path=settings.QDRANT_URL,
         )
         self._collection_name = collection_name or settings.QDRANT_COLLECTION
         self._vector_size = vector_size or settings.QDRANT_VECTOR_SIZE
@@ -33,7 +33,7 @@ class VectorStore:
     @staticmethod
     def _chunk_id(chunk: dict) -> str:
         key = f"{chunk['metadata']['file_id']}::{chunk['metadata']['section_no']}"
-        return hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return str(uuid.UUID(hashlib.sha256(key.encode()).hexdigest()[:32]))
 
     async def upsert_chunks(self, chunks: list[dict]):
         points = [
