@@ -25,10 +25,10 @@ class Settings(BaseSettings):
 
     # EMBEDDING_MODEL: str = "FinLang/finance-embeddings-investopedia"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIM: int = 768
-    EMBEDDING_QUERY_INSTRUCTION: str = ""
+    
+    QDRANT_API_KEY: str | None = None
+    QDRANT_VECTOR_SIZE: int = 1536 
     QDRANT_COLLECTION: str = "sec_filings"
     QDRANT_URL: str = "/home/rajnikant/Github/filings/qdrant_storage"
-    QDRANT_BATCH_SIZE : int = 100
     
 settings = Settings()
