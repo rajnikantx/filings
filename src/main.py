@@ -1,6 +1,7 @@
 import asyncio
-
+import json
 from loguru import logger
+from pathlib import Path
 
 from src.core.cli import parse_args
 from src.indexing.chunking import run_chunker
@@ -14,7 +15,7 @@ from src.inference.chunks_retrieval import ChunkRetrieval
 from src.inference.context_build import Context
 from src.inference.generate_answer import Generation
 from src.inference.query_enhancement import QueryEnhancement
-
+from src.inference.build_tree import TreeBuilder
 
 async def ingestion(directory: str = "data/raw_filings/"):
     parser = LlamaCloudParser(tier="agentic")
@@ -47,9 +48,11 @@ async def ingestion(directory: str = "data/raw_filings/"):
 
 async def query(user_query: str, top_k: int = 5):
     enhancer = QueryEnhancement()
-    retriever = ChunkRetrieval()
+    vector_store = VectorStore()
+    retriever = ChunkRetrieval(vector_store=vector_store)
     context_builder = Context()
     generator = Generation()
+    tree_builder = TreeBuilder(vector_store=vector_store)
 
     rewritten = await enhancer.query_rewrite(user_query)
 
@@ -57,13 +60,23 @@ async def query(user_query: str, top_k: int = 5):
     logger.info("Rewritten query: {}", rewritten)
 
     results = await retriever.search(rewritten, limit=top_k)
-
+    Path("logs").mkdir(parents=True, exist_ok=True)
+    with open("logs/retrieved_chunks.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+    logger.info("saved builded tree")
     logger.info("Retrieved {} chunks", len(results))
+
+    hey = await tree_builder.build_tree(results)
+    Path("logs").mkdir(parents=True, exist_ok=True)
+    with open("logs/build_tree.json", "w", encoding="utf-8") as f:
+        json.dump(hey, f, indent=2, ensure_ascii=False)
+    logger.info("saved builded tree")
 
     context = context_builder.build_context(results)
 
     print(f"\nQuery: {user_query}")
     print(f"Rewritten: {rewritten}")
+
     print("\nAnswer:\n")
     async for token in generator.generate_answer(context, user_query):
         print(token, end="", flush=True)

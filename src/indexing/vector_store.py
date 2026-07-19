@@ -2,7 +2,7 @@ import hashlib
 import uuid
 
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
+from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
 
 from src.config import settings
 
@@ -76,3 +76,22 @@ class VectorStore:
             {"score": point.score, "payload": point.payload}
             for point in results.points
         ]
+
+    async def retrieve(self, filters: Filter) -> list[dict]:
+        all_points: list[dict] = []
+        offset = None
+        while True:
+            results, next_offset = await self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=filters,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            all_points.extend(
+                [{"id": point.id, "payload": point.payload} for point in results]
+            )
+            if next_offset is None:
+                break
+            offset = next_offset
+        return all_points
