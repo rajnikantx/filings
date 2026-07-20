@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,8 +14,9 @@ from src.api.models import (
 )
 from src.config import settings
 from src.indexing.vector_store import VectorStore
+from src.inference.build_tree import TreeBuilder
 from src.inference.chunks_retrieval import ChunkRetrieval, ChunkRetrievalError
-from src.inference.context_build import Context
+from src.inference.context_build import ContextBuilder
 from src.inference.generate_answer import Generation
 from src.inference.query_enhancement import QueryEnhancement
 
@@ -76,8 +78,9 @@ async def query_endpoint(request: QueryRequest):
 
     enhancer = QueryEnhancement()
     retriever = ChunkRetrieval()
-    context_builder = Context()
+    context_builder = ContextBuilder()
     generator = Generation()
+    tree_builder = TreeBuilder()
 
     try:
         rewritten = await enhancer.query_rewrite(request.query)
@@ -94,10 +97,17 @@ async def query_endpoint(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Retrieval failed: {e}")
 
-    context = context_builder.build_context(results)
+    tree = await tree_builder.build_tree(results)
+    context = context_builder.build_context(tree)
+    csv_paths = context_builder.collect_csv_paths(tree)
+
+    Path("logs").mkdir(parents=True, exist_ok=True)
+    with open("logs/context.txt", "w", encoding="utf-8") as f:
+        f.write(context)
+    logger.info("Saved context to logs/context.txt")
 
     async def stream():
-        async for token in generator.generate_answer(context, request.query):
+        async for token in generator.generate_answer(context, request.query, csv_paths):
             yield token
 
     return StreamingResponse(stream(), media_type="text/plain")

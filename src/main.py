@@ -1,7 +1,8 @@
 import asyncio
 import json
-from loguru import logger
 from pathlib import Path
+
+from loguru import logger
 
 from src.core.cli import parse_args
 from src.indexing.chunking import run_chunker
@@ -11,11 +12,12 @@ from src.indexing.metadata_enrichment import MetadataEnrichment
 from src.indexing.parent_child import SectionPipeline
 from src.indexing.table_parser import TableParser
 from src.indexing.vector_store import VectorStore
+from src.inference.build_tree import TreeBuilder
 from src.inference.chunks_retrieval import ChunkRetrieval
-from src.inference.context_build import Context
+from src.inference.context_build import ContextBuilder
 from src.inference.generate_answer import Generation
 from src.inference.query_enhancement import QueryEnhancement
-from src.inference.build_tree import TreeBuilder
+
 
 async def ingestion(directory: str = "data/raw_filings/"):
     parser = LlamaCloudParser(tier="agentic")
@@ -50,7 +52,7 @@ async def query(user_query: str, top_k: int = 5):
     enhancer = QueryEnhancement()
     vector_store = VectorStore()
     retriever = ChunkRetrieval(vector_store=vector_store)
-    context_builder = Context()
+    context_builder = ContextBuilder()
     generator = Generation()
     tree_builder = TreeBuilder(vector_store=vector_store)
 
@@ -63,22 +65,22 @@ async def query(user_query: str, top_k: int = 5):
     Path("logs").mkdir(parents=True, exist_ok=True)
     with open("logs/retrieved_chunks.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
-    logger.info("saved builded tree")
     logger.info("Retrieved {} chunks", len(results))
 
-    hey = await tree_builder.build_tree(results)
-    Path("logs").mkdir(parents=True, exist_ok=True)
-    with open("logs/build_tree.json", "w", encoding="utf-8") as f:
-        json.dump(hey, f, indent=2, ensure_ascii=False)
-    logger.info("saved builded tree")
+    tree = await tree_builder.build_tree(results)
+    context = context_builder.build_context(tree)
+    csv_paths = context_builder.collect_csv_paths(tree)
 
-    context = context_builder.build_context(results)
+    Path("logs").mkdir(parents=True, exist_ok=True)
+    with open("logs/context.txt", "w", encoding="utf-8") as f:
+        f.write(context)
+    logger.info("Saved context to logs/context.txt")
 
     print(f"\nQuery: {user_query}")
     print(f"Rewritten: {rewritten}")
 
     print("\nAnswer:\n")
-    async for token in generator.generate_answer(context, user_query):
+    async for token in generator.generate_answer(context, user_query, csv_paths):
         print(token, end="", flush=True)
     print()
 

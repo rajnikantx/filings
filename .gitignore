@@ -31,7 +31,6 @@ env/
 data/
 docs/
 outputs/
-notebooks/
 
 # ========================
 # Vector Store
